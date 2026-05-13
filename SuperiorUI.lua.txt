@@ -1,0 +1,803 @@
+--[[
+╔══════════════════════════════════════════════════════════════╗
+║                   SUPERIOR UI LIBRARY                        ║
+║              Converted from LMG2L GUI Creator                ║
+║                        v1.0                                  ║
+╠══════════════════════════════════════════════════════════════╣
+║  USAGE:                                                      ║
+║  local SuperiorUI = loadstring(game:HttpGet("RAW_URL"))()    ║
+║                                                              ║
+║  local Window = SuperiorUI.new({                             ║
+║      Title   = "Superior Hub",                               ║
+║      Version = "v1",                                         ║
+║      Accent  = Color3.fromRGB(255, 63, 200),  -- optional    ║
+║  })                                                          ║
+║                                                              ║
+║  local Tab = Window:AddTab("Dashboard")                      ║
+║  Tab:AddToggle("Speed Boost", false, function(s) end)        ║
+║  Tab:AddSlider("Speed", 0, 100, 16, function(v) end)         ║
+║  Tab:AddButton("Do Thing", function() end)                   ║
+║  Tab:AddLabel("Some info text")                              ║
+║  Tab:AddSeparator()                                          ║
+║                                                              ║
+║  Window:SetFPS(fps)   -- update FPS display                  ║
+║  Window:SetPing(ms)   -- update ping display                 ║
+║  Window:Destroy()     -- clean removal                       ║
+╚══════════════════════════════════════════════════════════════╝
+]]
+
+-- ================================================================
+-- SERVICES
+-- ================================================================
+local Players          = game:GetService("Players")
+local RunService       = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService     = game:GetService("TweenService")
+local CoreGui          = game:GetService("CoreGui")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- ================================================================
+-- LIBRARY TABLE
+-- ================================================================
+local SuperiorUI = {}
+SuperiorUI.__index = SuperiorUI
+
+-- ================================================================
+-- INTERNAL HELPERS
+-- ================================================================
+
+-- Tween shortcut
+local function Tween(obj, props, t, style, dir)
+    return TweenService:Create(
+        obj,
+        TweenInfo.new(
+            t     or 0.22,
+            style or Enum.EasingStyle.Quart,
+            dir   or Enum.EasingDirection.Out
+        ),
+        props
+    )
+end
+
+-- Make a Frame draggable via a handle
+local function MakeDraggable(frame, handle)
+    handle = handle or frame
+    local dragging, dragStart, startPos = false, nil, nil
+
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging  = true
+            dragStart = input.Position
+            startPos  = frame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if not dragging then return end
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+            local d = input.Position - dragStart
+            frame.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + d.X,
+                startPos.Y.Scale, startPos.Y.Offset + d.Y
+            )
+        end
+    end)
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+end
+
+-- Quick instance helpers
+local function Corner(parent, r)
+    local c = Instance.new("UICorner", parent)
+    c.CornerRadius = UDim.new(0, r or 10)
+    return c
+end
+
+local function Stroke(parent, color, thickness)
+    local s = Instance.new("UIStroke", parent)
+    s.Color     = color     or Color3.fromRGB(255, 0, 127)
+    s.Thickness = thickness or 2
+    return s
+end
+
+local function Label(parent, props)
+    local l = Instance.new("TextLabel", parent)
+    l.BackgroundTransparency = 1
+    l.BorderSizePixel        = 0
+    l.TextStrokeTransparency = 0
+    l.FontFace = Font.new(
+        "rbxasset://fonts/families/FredokaOne.json",
+        Enum.FontWeight.Regular,
+        Enum.FontStyle.Normal
+    )
+    l.TextColor3 = Color3.new(1, 1, 1)
+    for k, v in pairs(props or {}) do l[k] = v end
+    return l
+end
+
+local function Button(parent, props)
+    local b = Instance.new("TextButton", parent)
+    b.BackgroundTransparency = 1
+    b.BorderSizePixel        = 0
+    b.TextStrokeTransparency = 0
+    b.FontFace = Font.new(
+        "rbxasset://fonts/families/FredokaOne.json",
+        Enum.FontWeight.Regular,
+        Enum.FontStyle.Normal
+    )
+    b.TextColor3     = Color3.new(1, 1, 1)
+    b.AutoButtonColor = false
+    for k, v in pairs(props or {}) do b[k] = v end
+    return b
+end
+
+-- ================================================================
+-- WINDOW CONSTRUCTOR
+-- ================================================================
+
+---Creates a new SuperiorUI window.
+---@param config table  { Title, Version, Accent, StrokeColor, ToggleKey }
+---@return Window object
+function SuperiorUI.new(config)
+    config = config or {}
+
+    local title       = config.Title       or "Superior Hub"
+    local version     = config.Version     or "v1"
+    local ACCENT      = config.Accent      or Color3.fromRGB(255, 63, 200)
+    local STROKE      = config.StrokeColor or Color3.fromRGB(255, 0,  127)
+    local FONT        = Font.new(
+        "rbxasset://fonts/families/FredokaOne.json",
+        Enum.FontWeight.Regular,
+        Enum.FontStyle.Normal
+    )
+
+    -- ── ScreenGui ──
+    local sg = Instance.new("ScreenGui")
+    sg.Name             = "SuperiorUI_" .. title
+    sg.ZIndexBehavior   = Enum.ZIndexBehavior.Sibling
+    sg.ResetOnSpawn     = false
+    sg.IgnoreGuiInset   = true
+    pcall(function() sg.Parent = CoreGui end)
+    if not sg.Parent then sg.Parent = LocalPlayer.PlayerGui end
+
+    -- ================================================================
+    -- FLOATING BAR  (title / version / fps / ping)
+    -- ================================================================
+    local FloatBar = Instance.new("Frame", sg)
+    FloatBar.Name            = "FloatingButton"
+    FloatBar.BackgroundColor3 = ACCENT
+    FloatBar.BorderSizePixel = 0
+    FloatBar.Size            = UDim2.new(0, 520, 0, 42)
+    FloatBar.Position        = UDim2.new(0.5, -260, 0, 8)
+    Corner(FloatBar, 25)
+    Stroke(FloatBar, STROKE, 2)
+    MakeDraggable(FloatBar)
+
+    -- Badge helper — pink pill labels inside the bar
+    local function Badge(text, xOffset, widthOffset)
+        local bg = Instance.new("Frame", FloatBar)
+        bg.BackgroundColor3 = STROKE
+        bg.BorderSizePixel  = 0
+        bg.Size             = UDim2.new(0, widthOffset, 0, 28)
+        bg.Position         = UDim2.new(0, xOffset, 0.5, -14)
+        Corner(bg, 20)
+        local lbl = Label(bg, {
+            Size     = UDim2.new(1, 0, 1, 0),
+            Text     = text,
+            TextSize = 14,
+            FontFace = FONT,
+        })
+        return bg, lbl
+    end
+
+    local _, TitleLbl   = Badge(title,   8,  160)
+    local _, VersionLbl = Badge(version, 174, 60)
+    local _, PingLbl    = Badge("0ms",   240, 80)
+    local _, FpsLbl     = Badge("0 Fps", 326, 90)
+
+    -- ================================================================
+    -- MAIN WINDOW
+    -- ================================================================
+    local Win = Instance.new("Frame", sg)
+    Win.Name             = "Window"
+    Win.BackgroundColor3 = ACCENT
+    Win.BorderSizePixel  = 0
+    Win.Size             = UDim2.new(0, 520, 0, 360)
+    Win.Position         = UDim2.new(0.5, -260, 0, 58)
+    Corner(Win, 25)
+    Stroke(Win, STROKE, 2)
+    MakeDraggable(Win, FloatBar)
+
+    -- ── Sidebar (tabs) ──
+    local TabsHolder = Instance.new("Frame", Win)
+    TabsHolder.Name             = "TabsHolder"
+    TabsHolder.BackgroundColor3 = Color3.fromRGB(
+        math.floor(ACCENT.R * 255 * 0.95),
+        math.floor(ACCENT.G * 255 * 0.8),
+        math.floor(ACCENT.B * 255 * 0.95)
+    )
+    TabsHolder.BorderSizePixel  = 0
+    TabsHolder.Size             = UDim2.new(0, 110, 1, -28)
+    TabsHolder.Position         = UDim2.new(0, 10, 0, 18)
+    Corner(TabsHolder, 15)
+    Stroke(TabsHolder, STROKE, 2)
+
+    local TabLayout = Instance.new("UIListLayout", TabsHolder)
+    TabLayout.Padding            = UDim.new(0, 6)
+    TabLayout.SortOrder          = Enum.SortOrder.LayoutOrder
+    TabLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+    local TabPad = Instance.new("UIPadding", TabsHolder)
+    TabPad.PaddingTop    = UDim.new(0, 8)
+    TabPad.PaddingBottom = UDim.new(0, 8)
+
+    -- ── Content area ──
+    local ContentArea = Instance.new("Frame", Win)
+    ContentArea.Name             = "ContentWindow"
+    ContentArea.BackgroundColor3 = ACCENT
+    ContentArea.BorderSizePixel  = 0
+    ContentArea.Size             = UDim2.new(1, -132, 1, -28)
+    ContentArea.Position         = UDim2.new(0, 128, 0, 18)
+    Corner(ContentArea, 15)
+    Stroke(ContentArea, STROKE, 2)
+
+    -- ================================================================
+    -- TAB SYSTEM
+    -- ================================================================
+    local tabPages   = {}   -- [name] = ScrollingFrame page
+    local tabBtns    = {}   -- [name] = TextButton
+    local activeTab  = nil
+    local tabOrder   = 0
+
+    local function switchTab(name)
+        if activeTab == name then return end
+        activeTab = name
+        for n, page in pairs(tabPages) do
+            page.Visible = (n == name)
+        end
+        for n, btn in pairs(tabBtns) do
+            local isActive = (n == name)
+            Tween(btn, {
+                BackgroundTransparency = isActive and 0   or 1,
+                TextColor3             = isActive
+                    and Color3.fromRGB(30, 10, 30)
+                    or  Color3.new(1, 1, 1),
+            }, 0.18):Play()
+        end
+    end
+
+    -- ================================================================
+    -- WINDOW OBJECT
+    -- ================================================================
+    local Window = {}
+
+    ---Adds a sidebar tab and returns a Tab object.
+    ---@param name string  Tab label
+    ---@return Tab object
+    function Window:AddTab(name)
+        tabOrder = tabOrder + 1
+
+        -- Sidebar button
+        local btn = Button(TabsHolder, {
+            Size             = UDim2.new(1, -10, 0, 34),
+            Text             = name,
+            TextSize         = 14,
+            FontFace         = FONT,
+            BackgroundColor3 = Color3.new(1, 1, 1),
+            BackgroundTransparency = 1,
+            LayoutOrder      = tabOrder,
+        })
+        Corner(btn, 10)
+        local btnStroke = Stroke(btn, STROKE, 2)
+        btnStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+
+        btn.MouseButton1Click:Connect(function() switchTab(name) end)
+        tabBtns[name] = btn
+
+        -- Scrolling page
+        local page = Instance.new("ScrollingFrame", ContentArea)
+        page.Name                  = "Page_" .. name
+        page.BackgroundTransparency = 1
+        page.BorderSizePixel       = 0
+        page.Size                  = UDim2.new(1, 0, 1, 0)
+        page.ScrollBarThickness    = 3
+        page.ScrollBarImageColor3  = STROKE
+        page.CanvasSize            = UDim2.new(0, 0, 0, 0)
+        page.Visible               = false
+
+        local layout = Instance.new("UIListLayout", page)
+        layout.Padding            = UDim.new(0, 7)
+        layout.SortOrder          = Enum.SortOrder.LayoutOrder
+        layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+        local pad = Instance.new("UIPadding", page)
+        pad.PaddingTop    = UDim.new(0, 8)
+        pad.PaddingBottom = UDim.new(0, 8)
+
+        layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+            page.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 16)
+        end)
+
+        tabPages[name] = page
+        if activeTab == nil then switchTab(name) end
+
+        -- ── TAB OBJECT ──
+        local Tab = {}
+
+        ---Adds a section label / divider.
+        ---@param text string
+        function Tab:AddSeparator(text)
+            local row = Instance.new("Frame", page)
+            row.BackgroundTransparency = 1
+            row.BorderSizePixel        = 0
+            row.Size                   = UDim2.new(0.92, 0, 0, 24)
+
+            if text and text ~= "" then
+                local lbl = Label(row, {
+                    Size         = UDim2.new(1, 0, 1, 0),
+                    Text         = text,
+                    TextSize     = 12,
+                    FontFace     = FONT,
+                    TextColor3   = Color3.fromRGB(255, 200, 240),
+                    TextXAlignment = Enum.TextXAlignment.Left,
+                })
+                Instance.new("UIPadding", lbl).PaddingLeft = UDim.new(0, 6)
+            end
+
+            -- Divider line
+            local line = Instance.new("Frame", row)
+            line.BackgroundColor3 = STROKE
+            line.BackgroundTransparency = 0.5
+            line.BorderSizePixel  = 0
+            line.Size             = UDim2.new(1, 0, 0, 1)
+            line.Position         = UDim2.new(0, 0, 1, -1)
+        end
+
+        ---Adds a passive text label row.
+        ---@param text  string
+        ---@param color Color3?
+        function Tab:AddLabel(text, color)
+            local lbl = Label(page, {
+                Size         = UDim2.new(0.92, 0, 0, 30),
+                Text         = text or "",
+                TextSize     = 14,
+                FontFace     = FONT,
+                TextColor3   = color or Color3.fromRGB(255, 220, 245),
+                TextXAlignment = Enum.TextXAlignment.Left,
+            })
+            Instance.new("UIPadding", lbl).PaddingLeft = UDim.new(0, 8)
+        end
+
+        ---Adds a toggle switch row.
+        ---@param label    string
+        ---@param default  boolean
+        ---@param callback function(state: boolean)
+        ---@return setVisual function(state: boolean, skipCb?: boolean)
+        function Tab:AddToggle(label, default, callback)
+            local isOn = default or false
+
+            -- Row container
+            local row = Instance.new("Frame", page)
+            row.BackgroundColor3 = Color3.fromRGB(
+                math.min(255, math.floor(ACCENT.R * 255 + 20)),
+                math.floor(ACCENT.G * 255 * 0.7),
+                math.min(255, math.floor(ACCENT.B * 255 + 10))
+            )
+            row.BorderSizePixel  = 0
+            row.Size             = UDim2.new(0.92, 0, 0, 44)
+            Corner(row, 10)
+            Stroke(row, STROKE, 1.5)
+
+            local lbl = Label(row, {
+                Size           = UDim2.new(0.65, 0, 1, 0),
+                Position       = UDim2.new(0, 10, 0, 0),
+                Text           = label,
+                TextSize       = 15,
+                FontFace       = FONT,
+                TextXAlignment = Enum.TextXAlignment.Left,
+            })
+
+            -- Switch track
+            local switchBg = Instance.new("Frame", row)
+            switchBg.Size             = UDim2.new(0, 42, 0, 22)
+            switchBg.Position         = UDim2.new(1, -52, 0.5, -11)
+            switchBg.BackgroundColor3 = isOn and STROKE or Color3.fromRGB(80, 20, 60)
+            switchBg.BorderSizePixel  = 0
+            Corner(switchBg, 11)
+
+            local knob = Instance.new("Frame", switchBg)
+            knob.Size             = UDim2.new(0, 16, 0, 16)
+            knob.Position         = isOn
+                and UDim2.new(1, -19, 0.5, -8)
+                or  UDim2.new(0,  3,  0.5, -8)
+            knob.BackgroundColor3 = Color3.new(1, 1, 1)
+            knob.BorderSizePixel  = 0
+            Corner(knob, 8)
+
+            local function setVisual(state, skipCb)
+                isOn = state
+                Tween(switchBg, {
+                    BackgroundColor3 = isOn and STROKE or Color3.fromRGB(80, 20, 60)
+                }, 0.18):Play()
+                Tween(knob, {
+                    Position = isOn
+                        and UDim2.new(1, -19, 0.5, -8)
+                        or  UDim2.new(0,  3,  0.5, -8)
+                }, 0.2, Enum.EasingStyle.Back):Play()
+                if not skipCb and callback then callback(isOn) end
+            end
+
+            -- Click zone
+            local click = Instance.new("TextButton", row)
+            click.Size                   = UDim2.new(1, 0, 1, 0)
+            click.BackgroundTransparency = 1
+            click.Text                   = ""
+            click.MouseButton1Click:Connect(function()
+                isOn = not isOn
+                setVisual(isOn)
+            end)
+
+            return setVisual
+        end
+
+        ---Adds a slider row.
+        ---@param label    string
+        ---@param min      number
+        ---@param max      number
+        ---@param default  number
+        ---@param callback function(value: number)
+        ---@param isFloat  boolean?
+        ---@return setVal function(value: number)
+        function Tab:AddSlider(label, min, max, default, callback, isFloat)
+            min     = min     or 0
+            max     = max     or 100
+            default = math.clamp(default or min, min, max)
+
+            local row = Instance.new("Frame", page)
+            row.BackgroundColor3 = Color3.fromRGB(
+                math.min(255, math.floor(ACCENT.R * 255 + 20)),
+                math.floor(ACCENT.G * 255 * 0.7),
+                math.min(255, math.floor(ACCENT.B * 255 + 10))
+            )
+            row.BorderSizePixel  = 0
+            row.Size             = UDim2.new(0.92, 0, 0, 58)
+            Corner(row, 10)
+            Stroke(row, STROKE, 1.5)
+
+            -- Label + value display
+            Label(row, {
+                Size           = UDim2.new(0.6, 0, 0, 20),
+                Position       = UDim2.new(0, 10, 0, 8),
+                Text           = label,
+                TextSize       = 14,
+                FontFace       = FONT,
+                TextXAlignment = Enum.TextXAlignment.Left,
+            })
+
+            local valLbl = Label(row, {
+                Size           = UDim2.new(0.35, 0, 0, 20),
+                Position       = UDim2.new(0.62, 0, 0, 8),
+                Text           = tostring(default),
+                TextSize       = 14,
+                FontFace       = FONT,
+                TextXAlignment = Enum.TextXAlignment.Right,
+            })
+
+            -- Track
+            local track = Instance.new("Frame", row)
+            track.BackgroundColor3 = Color3.fromRGB(80, 20, 60)
+            track.BorderSizePixel  = 0
+            track.Size             = UDim2.new(1, -20, 0, 6)
+            track.Position         = UDim2.new(0, 10, 0, 40)
+            Corner(track, 3)
+
+            local pct0 = (default - min) / math.max(max - min, 0.001)
+
+            local fill = Instance.new("Frame", track)
+            fill.BackgroundColor3 = STROKE
+            fill.BorderSizePixel  = 0
+            fill.Size             = UDim2.new(pct0, 0, 1, 0)
+            Corner(fill, 3)
+
+            local thumb = Instance.new("Frame", track)
+            thumb.BackgroundColor3 = Color3.new(1, 1, 1)
+            thumb.BorderSizePixel  = 0
+            thumb.Size             = UDim2.new(0, 14, 0, 14)
+            thumb.Position         = UDim2.new(pct0, -7, 0.5, -7)
+            Corner(thumb, 7)
+
+            local currentVal = default
+            local dragging   = false
+
+            local function applyRel(rel)
+                rel = math.clamp(rel, 0, 1)
+                fill.Size      = UDim2.new(rel, 0, 1, 0)
+                thumb.Position = UDim2.new(rel, -7, 0.5, -7)
+                local v = min + (max - min) * rel
+                v = isFloat and (math.floor(v * 100) / 100) or math.floor(v)
+                currentVal    = v
+                valLbl.Text   = tostring(v)
+                if callback then callback(v) end
+            end
+
+            track.InputBegan:Connect(function(i)
+                if i.UserInputType == Enum.UserInputType.MouseButton1
+                or i.UserInputType == Enum.UserInputType.Touch then
+                    dragging = true
+                    applyRel((i.Position.X - track.AbsolutePosition.X) / track.AbsoluteSize.X)
+                end
+            end)
+            thumb.InputBegan:Connect(function(i)
+                if i.UserInputType == Enum.UserInputType.MouseButton1
+                or i.UserInputType == Enum.UserInputType.Touch then
+                    dragging = true
+                end
+            end)
+            UserInputService.InputChanged:Connect(function(i)
+                if not dragging then return end
+                if i.UserInputType == Enum.UserInputType.MouseMovement
+                or i.UserInputType == Enum.UserInputType.Touch then
+                    applyRel((i.Position.X - track.AbsolutePosition.X) / track.AbsoluteSize.X)
+                end
+            end)
+            UserInputService.InputEnded:Connect(function(i)
+                if i.UserInputType == Enum.UserInputType.MouseButton1
+                or i.UserInputType == Enum.UserInputType.Touch then
+                    dragging = false
+                end
+            end)
+
+            local function setVal(v)
+                v = math.clamp(v, min, max)
+                currentVal = v
+                valLbl.Text = tostring(v)
+                local rel = (v - min) / math.max(max - min, 0.001)
+                fill.Size      = UDim2.new(rel, 0, 1, 0)
+                thumb.Position = UDim2.new(rel, -7, 0.5, -7)
+            end
+
+            return setVal
+        end
+
+        ---Adds a clickable button row with ripple.
+        ---@param label    string
+        ---@param callback function(btn: TextButton)
+        ---@return TextButton
+        function Tab:AddButton(label, callback)
+            local btn = Button(page, {
+                Size             = UDim2.new(0.92, 0, 0, 40),
+                Text             = label,
+                TextSize         = 15,
+                FontFace         = FONT,
+                BackgroundColor3 = STROKE,
+                BackgroundTransparency = 0,
+            })
+            Corner(btn, 10)
+
+            -- Ripple effect
+            btn.ClipsDescendants = true
+            btn.InputBegan:Connect(function(input)
+                if input.UserInputType ~= Enum.UserInputType.MouseButton1
+                and input.UserInputType ~= Enum.UserInputType.Touch then return end
+                task.spawn(function()
+                    local r = Instance.new("Frame", btn)
+                    r.BackgroundColor3       = Color3.new(1, 1, 1)
+                    r.BackgroundTransparency = 0.7
+                    r.AnchorPoint            = Vector2.new(0.5, 0.5)
+                    r.Size                   = UDim2.new(0, 0, 0, 0)
+                    r.ZIndex                 = btn.ZIndex + 1
+                    r.Position               = UDim2.new(
+                        0, input.Position.X - btn.AbsolutePosition.X,
+                        0, input.Position.Y - btn.AbsolutePosition.Y
+                    )
+                    Instance.new("UICorner", r).CornerRadius = UDim.new(1, 0)
+                    local sz = math.max(btn.AbsoluteSize.X, btn.AbsoluteSize.Y) * 2
+                    Tween(r, { Size = UDim2.new(0, sz, 0, sz), BackgroundTransparency = 1 }, 0.4):Play()
+                    task.wait(0.4)
+                    r:Destroy()
+                end)
+            end)
+
+            btn.MouseButton1Click:Connect(function()
+                if callback then callback(btn) end
+            end)
+
+            return btn
+        end
+
+        ---Adds a text input row.
+        ---@param placeholder string
+        ---@param default     string?
+        ---@param callback    function(text: string)  — fired on FocusLost
+        ---@return TextBox
+        function Tab:AddInput(placeholder, default, callback)
+            local tb = Instance.new("TextBox", page)
+            tb.Size                = UDim2.new(0.92, 0, 0, 40)
+            tb.BackgroundColor3    = Color3.fromRGB(
+                math.min(255, math.floor(ACCENT.R * 255 + 20)),
+                math.floor(ACCENT.G * 255 * 0.65),
+                math.min(255, math.floor(ACCENT.B * 255 + 10))
+            )
+            tb.BorderSizePixel     = 0
+            tb.Text                = default or ""
+            tb.PlaceholderText     = placeholder or ""
+            tb.PlaceholderColor3   = Color3.fromRGB(200, 180, 200)
+            tb.TextColor3          = Color3.new(1, 1, 1)
+            tb.TextSize            = 14
+            tb.FontFace            = FONT
+            tb.ClearTextOnFocus    = false
+            Corner(tb, 10)
+            Stroke(tb, STROKE, 1.5)
+            local pad = Instance.new("UIPadding", tb)
+            pad.PaddingLeft  = UDim.new(0, 10)
+            pad.PaddingRight = UDim.new(0, 10)
+
+            tb.FocusLost:Connect(function(enter)
+                if callback then callback(tb.Text) end
+            end)
+            return tb
+        end
+
+        ---Adds a dropdown selector.
+        ---@param label    string
+        ---@param options  string[]
+        ---@param callback function(selected: string)
+        function Tab:AddDropdown(label, options, callback)
+            local selected = options[1] or "Select..."
+            local open     = false
+
+            local container = Instance.new("Frame", page)
+            container.BackgroundTransparency = 1
+            container.BorderSizePixel        = 0
+            container.Size                   = UDim2.new(0.92, 0, 0, 40)
+            container.ClipsDescendants       = false
+
+            local header = Instance.new("TextButton", container)
+            header.Size             = UDim2.new(1, 0, 0, 40)
+            header.BackgroundColor3 = Color3.fromRGB(
+                math.min(255, math.floor(ACCENT.R * 255 + 20)),
+                math.floor(ACCENT.G * 255 * 0.7),
+                math.min(255, math.floor(ACCENT.B * 255 + 10))
+            )
+            header.BorderSizePixel  = 0
+            header.Text             = label .. ":  " .. selected .. "  ▾"
+            header.TextColor3       = Color3.new(1, 1, 1)
+            header.TextSize         = 14
+            header.FontFace         = FONT
+            header.AutoButtonColor  = false
+            Corner(header, 10)
+            Stroke(header, STROKE, 1.5)
+
+            local panel = Instance.new("Frame", container)
+            panel.BackgroundColor3 = Color3.fromRGB(
+                math.min(255, math.floor(ACCENT.R * 255 + 30)),
+                math.floor(ACCENT.G * 255 * 0.75),
+                math.min(255, math.floor(ACCENT.B * 255 + 20))
+            )
+            panel.BorderSizePixel  = 0
+            panel.Size             = UDim2.new(1, 0, 0, #options * 34)
+            panel.Position         = UDim2.new(0, 0, 0, 43)
+            panel.Visible          = false
+            panel.ZIndex           = 20
+            Corner(panel, 10)
+            Stroke(panel, STROKE, 1.5)
+
+            local panelLayout = Instance.new("UIListLayout", panel)
+            panelLayout.SortOrder = Enum.SortOrder.LayoutOrder
+            panelLayout.Padding   = UDim.new(0, 2)
+
+            for _, opt in ipairs(options) do
+                local optBtn = Button(panel, {
+                    Size             = UDim2.new(1, -8, 0, 30),
+                    Text             = opt,
+                    TextSize         = 13,
+                    FontFace         = FONT,
+                    BackgroundColor3 = STROKE,
+                    BackgroundTransparency = 1,
+                    ZIndex           = 21,
+                })
+                optBtn.MouseButton1Click:Connect(function()
+                    selected    = opt
+                    header.Text = label .. ":  " .. opt .. "  ▾"
+                    open        = false
+                    panel.Visible = false
+                    container.Size = UDim2.new(0.92, 0, 0, 40)
+                    if callback then callback(opt) end
+                end)
+            end
+
+            header.MouseButton1Click:Connect(function()
+                open = not open
+                panel.Visible  = open
+                container.Size = open
+                    and UDim2.new(0.92, 0, 0, 40 + #options * 34 + 6)
+                    or  UDim2.new(0.92, 0, 0, 40)
+            end)
+        end
+
+        return Tab
+    end
+
+    -- ================================================================
+    -- WINDOW-LEVEL METHODS
+    -- ================================================================
+
+    ---Updates the FPS counter in the floating bar.
+    ---@param fps number
+    function Window:SetFPS(fps)
+        FpsLbl.Text = math.floor(fps) .. " Fps"
+    end
+
+    ---Updates the ping counter in the floating bar.
+    ---@param ms number
+    function Window:SetPing(ms)
+        PingLbl.Text = math.floor(ms) .. "ms"
+    end
+
+    ---Updates the version badge.
+    ---@param ver string
+    function Window:SetVersion(ver)
+        VersionLbl.Text = ver
+    end
+
+    ---Updates the title badge.
+    ---@param t string
+    function Window:SetTitle(t)
+        TitleLbl.Text = t
+    end
+
+    ---Selects a tab by name.
+    ---@param name string
+    function Window:SelectTab(name)
+        switchTab(name)
+    end
+
+    ---Destroys the entire ScreenGui.
+    function Window:Destroy()
+        sg:Destroy()
+    end
+
+    -- ── Auto FPS counter (optional built-in) ──
+    -- Tracks FPS every 0.5s using RunService
+    local fpsConn
+    local fpsFrames = 0
+    local fpsTimer  = 0
+    fpsConn = RunService.RenderStepped:Connect(function(dt)
+        fpsFrames = fpsFrames + 1
+        fpsTimer  = fpsTimer  + dt
+        if fpsTimer >= 0.5 then
+            FpsLbl.Text = math.floor(fpsFrames / fpsTimer) .. " Fps"
+            fpsFrames   = 0
+            fpsTimer    = 0
+        end
+    end)
+
+    -- ── Toggle window visibility (U key or click the bar) ──
+    local visible = true
+    FloatBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton2 then
+            visible      = not visible
+            Win.Visible  = visible
+        end
+    end)
+    UserInputService.InputBegan:Connect(function(input, gpe)
+        if gpe or UserInputService:GetFocusedTextBox() then return end
+        if input.KeyCode == (config.ToggleKey or Enum.KeyCode.RightShift) then
+            visible     = not visible
+            Win.Visible = visible
+        end
+    end)
+
+    return Window
+end
+
+return SuperiorUI
